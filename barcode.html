@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam Barcode Scanner</title>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script> 
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        h1 { margin-bottom: 20px; }
+        /* This is the container where the webcam feed will appear */
+        #reader { 
+            width: 400px; 
+            margin: 0 auto; 
+            border: 1px solid #ccc;
+        }
+        #result { 
+            margin-top: 30px; 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            text-align: center;
+        }
+        .controls { 
+            text-align: center; 
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Live Barcode Lookup Scanner</h1>
+    
+    <div id="result">
+        Product information will appear here automatically after scanning.
+    </div>
+    
+    <div id="reader"></div> 
+
+    <div class="controls">
+        <button id="startStopButton">Start Scanner</button>
+    </div>
+
+    <script>
+    // **STEP 1: Replace 'your-domain-name.infinityfreeapp.com' with your actual InfinityFree domain!**
+    const PHP_LOOKUP_URL = 'https://your-domain-name.infinityfreeapp.com/lookup.php'; 
+
+    let html5QrcodeScanner;
+    let isScanning = false;
+
+    // --- Core Lookup Function (Reused from previous code) ---
+    async function lookupProduct(barcode) {
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = `Searching product for barcode: **${barcode}**...`;
+
+        try {
+            // Send the barcode to the local PHP script on InfinityFree
+            const response = await fetch(`${PHP_LOOKUP_URL}?barcode=${barcode}`);
+            
+            if (!response.ok) {
+                throw new Error(`PHP Bridge failed with status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // Display the result
+            if (data.product_name) {
+                resultDiv.innerHTML = `
+                    <h2>✅ Product Found!</h2>
+                    <p><strong>Name:</strong> ${data.product_name}</p>
+                    <p><strong>Barcode:</strong> ${data.barcode}</p>
+                    <p><strong>Retail Price:</strong> ${data.price || 'N/A'}</p>
+                `;
+            } else if (data.error) {
+                resultDiv.innerHTML = `<h2>❌ Error</h2><p>${data.error}</p>`;
+            } else {
+                resultDiv.innerHTML = `<h2>⚠️ Not Found</h2><p>Product not found for barcode: ${barcode}</p>`;
+            }
+
+        } catch (error) {
+            console.error('Lookup failed:', error);
+            resultDiv.innerHTML = `An unexpected error occurred: ${error.message}.`;
+        }
+    }
+
+    // --- Scanner Implementation Functions ---
+
+    // This function runs every time the scanner successfully decodes a barcode.
+    function onScanSuccess(decodedText, decodedResult) {
+        // Prevent continuous scanning from overwhelming the system
+        if (isScanning) {
+            console.log(`Scan successful: ${decodedText}`);
+            
+            // 1. Stop the video stream immediately after the first successful scan
+            html5QrcodeScanner.stop().then((ignore) => {
+                isScanning = false;
+                document.getElementById('startStopButton').innerText = 'Start Scanner';
+                document.getElementById('result').innerHTML = "Barcode scanned successfully. Looking up product...";
+                
+                // 2. Call the core lookup function with the scanned code
+                lookupProduct(decodedText);
+            }).catch((err) => {
+                console.error("Failed to stop scanning:", err);
+            });
+        }
+    }
+
+    function toggleScanner() {
+        const button = document.getElementById('startStopButton');
+        
+        if (isScanning) {
+            // Stop the scanner
+            html5QrcodeScanner.stop().then((ignore) => {
+                isScanning = false;
+                button.innerText = 'Start Scanner';
+                document.getElementById('result').innerHTML = "Scanner stopped. Click Start Scanner to begin.";
+            }).catch((err) => {
+                console.error("Failed to stop scanner:", err);
+            });
+        } else {
+            // Start the scanner (Requires user permission for camera access)
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            
+            // Configuration for the scanner
+            const config = {
+                fps: 10,                 // Frames per second for scanning
+                qrbox: { width: 250, height: 250 }, // Bounding box for the scanner area
+                formats: [
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.UPC_A,
+                    Html5QrcodeSupportedFormats.CODE_128 
+                    // Add other formats if needed
+                ]
+            };
+
+            html5QrcodeScanner.start(
+                { facingMode: "environment" }, // Prefer the back camera on mobile, or any camera on desktop
+                config, 
+                onScanSuccess, 
+                (errorMessage) => { 
+                    // Scan Failure/Error (e.g., failed to detect or decode a code) - usually ignored
+                }
+            ).then(() => {
+                isScanning = true;
+                button.innerText = 'Stop Scanner';
+                document.getElementById('result').innerHTML = "Scanning... Hold the barcode in front of your webcam.";
+            }).catch((err) => {
+                document.getElementById('result').innerHTML = `**Error starting camera:** Make sure you have a webcam and have granted permission. Details: ${err}`;
+                console.error("Camera start failed:", err);
+            });
+        }
+    }
+
+    // Attach the start/stop function to the button
+    document.getElementById('startStopButton').addEventListener('click', toggleScanner);
+    
+    // Auto-start the scanner when the page loads
+    // Note: Most browsers require a user action (like clicking the button) to start the camera.
+    // We keep the button to ensure it works reliably across all browsers.
+    </script>
+
+</body>
+</html>
